@@ -1,5 +1,9 @@
 %% -*- Mode: Erlang; tab-width: 4 -*-
 -module(agner_server).
+-ifdef(TEST).
+-compile(export_all).
+-endif. 
+
 -include_lib("agner.hrl").
 -include_lib("typespecs/include/typespecs.hrl").
 -behaviour(gen_server).
@@ -16,7 +20,12 @@
 
 -define(TIMEOUT, 60000).
 
+-type dep_revision() :: {Version :: term(), Directory :: string(), Revision :: string()}.
+
 -record(state, {
+		  deps = [] :: [{Name :: string(), dep_revision()}],
+		  requests = [] :: [{NameOrSpec :: term(), Version :: term(), Directory :: string()}],
+		  active_requests = [] :: [{Name :: string()}]
          }).
 
 -type gen_server_state() :: #state{}.
@@ -34,6 +43,14 @@
 %%--------------------------------------------------------------------
 start_link() ->
 	gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+%% @doc
+%%     Stops server.
+%% @end
+-spec(stop/1 :: (Pid :: pid()) -> ok).
+stop(Pid) ->
+    (catch gen_server:call(Pid, stop)),
+    ok.
 
 %% @doc Ask the server for a spec on Name and Version
 %% @end
@@ -62,7 +79,22 @@ index() ->
            (agner_spec(), any(), directory()) -> ok | not_found_error().
                    
 fetch(NameOrSpec, Version, Directory) ->
-        gen_server:call(?SERVER, {fetch, NameOrSpec, Version, Directory}, infinity).
+    Name = case io_lib:printable_list(NameOrSpec) of
+			   true -> %% name
+				   NameOrSpec;
+			   false -> %% spec
+				   proplists:get_value(name, NameOrSpec)
+		   end,
+	case gen_server:call(?SERVER, {fetch, Name, NameOrSpec, Version, Directory}, infinity) of
+		{ok, {Directory, Revision}} -> 
+			gen_server:call(?SERVER, {fetched, Name, {Version, Directory, Revision}}),
+			{ok, Directory};
+		Else ->
+			io:format("unlock1: ~p~n", [Name]),
+			gen_server:call(?SERVER, {unlock, Name}),
+			io:format("unlock2: ~p~n", [Name]),
+			Else
+	end.
 
 %% @doc Ask for the versions of a given package, Name
 %% @end
@@ -89,8 +121,7 @@ versions(Name) ->
 -spec init([]) -> gen_server_init_result().
 
 init([]) ->
-	{ok, #state{
-      }}.
+	{ok, #state{}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -118,6 +149,10 @@ init([]) ->
                  (agner_call_fetch(), gen_server_from(), gen_server_state()) -> gen_server_async_reply(ok | {error, any()}) ;
                  (agner_call_versions(), gen_server_from(), gen_server_state()) -> gen_server_async_reply(list(agner_package_version()) | not_found_error()).
 
+handle_call(stop, _From,
+            State)->
+    {stop, normal, State};
+
 handle_call({spec, Name, Version}, From, #state{}=State) ->
 	spawn_link(fun () ->
 					   handle_spec(Name, Version, From, indices())
@@ -136,18 +171,44 @@ handle_call(index, From, #state{}=State) ->
 			   end),
 	{noreply, State};
 
-handle_call({fetch, NameOrSpec, Version, Directory}, From, #state{}=State) ->
-	spawn_link(fun () ->
-					   handle_fetch(NameOrSpec, Version, Directory, From)
-			   end),
+handle_call({fetch, Name, NameOrSpec, Version, Directory}, From, 
+			#state{
+					deps = Dependencies, 
+					requests = Queue, active_requests = Locks} = State0) ->
+	case lists:member(Name, Locks) of
+		true ->
+			State = State0#state{requests = [{NameOrSpec, Version, Directory}|Queue]};
+		false ->
+			State = State0#state{active_requests = [Name|Locks]},
+			Revisions = proplists:append_values(Name, Dependencies),
+			spawn_link(fun () ->
+							   handle_fetch(NameOrSpec, Version, Directory, Revisions, From)
+					   end)
+	end,
 	{noreply, State};
+
+handle_call({fetched, Name, {Version, Directory, Revision}}, From, 
+			#state{deps = Dependencies} = State0) ->
+	State = State0#state{deps = [{Name, {Version, Directory, Revision}}|Dependencies]},
+	handle_call({unlock, Name}, From, State);
+
+handle_call({unlock, Name}, __From, 
+			#state{requests = [], active_requests = Locks} = State0) ->
+	State = State0#state{active_requests = lists:delete(Name, Locks)},
+	{reply, ok, State};
+
+handle_call({unlock, Name}, From, 
+			#state{requests = [Query|Rest], active_requests = Locks} = State0) ->
+	{NameOrSpec, Version, Directory} = Query,
+	State = State0#state{requests = Rest, active_requests = lists:delete(Name, Locks)},
+	handle_call({fetch, Name, NameOrSpec, Version, Directory}, From, State),
+	{reply, ok, State};
 
 handle_call({versions, Name}, From, #state{}=State) ->
 	spawn_link(fun () ->
 					   handle_versions(Name, From, indices())
 			   end),
 	{noreply, State}.
-
 
 %%--------------------------------------------------------------------
 %% @private
@@ -264,22 +325,22 @@ handle_index(From, Acc, [{Mod0, Params}|Rest]) ->
             handle_index(From, lists:map(fun (Repo) -> indexize(Mod0, Params, Repo) end, Repos) ++ Acc, Rest)
 	end.
 
--spec handle_fetch(agner_package_name() | agner_spec(), agner_package_version(), directory(), gen_server_from()) -> any().
-handle_fetch(NameOrSpec, Version, Directory, From) ->
+-spec handle_fetch(agner_package_name() | agner_spec(), agner_package_version(), directory(), [dep_revision()], gen_server_from()) -> any().
+handle_fetch(NameOrSpec, Version, Directory, Revisions, From) ->
     case io_lib:printable_list(NameOrSpec) of
         true ->
             case agner:spec(NameOrSpec, Version) of
                 {error, _} = Error ->
                     gen_server:reply(From, Error);
                 Spec ->
-                    agner_download:fetch(Spec, Directory),
-                    gen_server:reply(From, ok)
+					Reply = do_fetch(Spec, Directory, Revisions),
+                    gen_server:reply(From, Reply)
             end;
         false -> %% it is a spec
-            agner_download:fetch(NameOrSpec, Directory),
-            gen_server:reply(From, ok)
+			Reply = do_fetch(NameOrSpec, Directory, Revisions),
+			gen_server:reply(From, Reply)
     end.
-
+	
 -spec handle_versions(agner_package_name(), gen_server_from(), agner_indices()) -> any().
 handle_versions(_,From,[]) ->
 	gen_server:reply(From, {error, not_found});
@@ -318,6 +379,35 @@ sha1(Mod, Params, Name, Version) ->
             no_such_version
     end.
 
+-spec(do_fetch/3 :: (agner_spec(), directory(), [dep_revision()]) -> {ok, string()} | {error, term()}). 
+do_fetch(Spec, Directory, []) ->
+	agner_download:fetch(Spec, Directory),
+	case agner_download:revision(Spec, Directory) of
+		{ok, Revision} ->		
+			{ok, {Directory, Revision}};
+		Else -> Else
+	end;
+
+do_fetch(Spec, Directory, Revisions) ->	
+	TempDirectory = test_server:temp_name(Directory),	
+	agner_download:fetch(Spec, TempDirectory),	
+	case agner_download:revision(Spec, Directory) of
+		{ok, Revision} ->
+			case agner_utils:search_keys(Revision, 3, Revisions) of
+				[] -> file:rename(TempDirectory, Directory),
+					  {ok, Directory};
+				[{__Vesrsion, NewDirectory, Revision}] -> 
+					rm_dir(Directory),
+					{ok, NewDirectory}
+			end;
+		Else -> Else
+	end.
+
+rm_dir([$/|_] = Directory) ->
+	%% Can be dangerous
+	agner_utils:exec("rm -rf " ++ Directory, [{quiet,true}]);
+rm_dir(Directory) ->	
+	{error, {not_absolute_path, Directory}}.
 
 index_module(T) ->
     case application:get_env(index_modules) of

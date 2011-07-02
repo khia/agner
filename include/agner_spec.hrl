@@ -6,6 +6,8 @@
 
 -type svn_rev() :: string().
 
+-type bzr_rev() :: string().
+
 -type agner_named_download_url() :: 
         {string(), agner_download_url()}.
 
@@ -13,7 +15,8 @@
         {all, list(agner_named_download_url())} |
         {git, url(), git_ref()} |
         {hg, url(), hg_rev()} |
-        {svn, url(), svn_rev()}.
+        {svn, url(), svn_rev()} |
+	{bzr, url(), bzr_rev()}.
 
 -type agner_install_dir() :: otp | directory().
 
@@ -42,6 +45,7 @@
 -type agner_spec_property_url() :: {url, agner_download_url()}.
 -type agner_spec_property_deps_dir() :: {deps_dir, directory()}.
 -type agner_spec_property_requires() :: {requires, list(agner_spec_requirement())}.
+-type agner_spec_property_revision() :: {revision, string()}.
 -type agner_spec_property_code_paths() :: {code_paths, [directory()]}.
                                                              
 
@@ -64,6 +68,7 @@
                                agner_spec_property_url() |
                                agner_spec_property_deps_dir() |
                                agner_spec_property_requires() |
+			       agner_spec_property_revision() |
                                agner_spec_property_code_paths().
 
 -type agner_spec() :: list(agner_spec_property()).
