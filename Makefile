@@ -1,4 +1,3 @@
-
 all: compile
 
 deps:
@@ -21,10 +20,6 @@ compile: deps
 	@cp deps/rebar/ebin/rebar* ebin/
 	@./rebar escriptize
 	@./scripts/add_rebar_templates
-
- .PHONY : test
-test: compile
-	@./rebar eunit
 
 install:
 	@install ./agner /usr/local/bin

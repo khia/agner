@@ -15,8 +15,8 @@
          handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
 
 -record(opts_rec, {
-          package, 
-          directory, 
+          package,
+          directory,
           version,
           app,
           build,
@@ -154,11 +154,11 @@ handle_state(fetchable, #state{ opts = #opts_rec{version = Version, directory = 
     gen_fsm2:send_event(self(), next),
     {ok, State};
 
-handle_state(fetchable, #state{ opts = #opts_rec{spec = {spec, Spec}, version = Version, directory = Directory0 } = Opts
-                              } = State) when is_list(Directory0) andalso is_list(Version) ->
-    {ok, Directory} = agner:fetch(Spec, Version, Directory0),
+handle_state(fetchable, #state{ opts = #opts_rec{spec = {spec, Spec}, version = Version, directory = Directory }
+                              } = State) when is_list(Directory) andalso is_list(Version) ->
+    agner:fetch(Spec, Version, Directory),
     gen_fsm2:send_event(self(), next),
-    {ok, State#state{opts = Opts#opts_rec{directory = Directory}}};
+    {ok, State};
 
 %% Execute steps in `fetched` until there is nothing else to do
 handle_state(fetched, #state{ fetched_steps = []  } = State) ->
@@ -505,7 +505,32 @@ fetch_deps_command(#opts_rec{ spec = {spec, Spec}, directory = Directory, quiet 
         Command ->
             set_install_prefix(Opts),
             io:format("[Fetching dependencies...]~n"),
-			{Result, _} = agner_utils:exec(Command, [{cd, Directory}|{quiet, Quiet}]),
+            Port = open_port({spawn,"sh -c \"" ++ Command ++ "\""},[{cd, Directory},exit_status,stderr_to_stdout,use_stdio, stream]),
+            unlink(Port),
+            PortHandler = fun (F) ->
+                                  receive
+                                      {'EXIT', Port, normal} ->
+                                          ok;
+                                      {'EXIT', Port, _} ->
+                                          error;
+                                      {Port,{exit_status,0}} ->
+                                          ok;
+                                      {Port,{exit_status,_}} ->
+                                          error;
+                                      {Port, {data, D}} when not Quiet andalso is_list(D) ->
+                                          io:format("~s",[D]),
+                                          F(F);
+                                      _ ->
+                                          F(F)
+                                  end
+                          end,
+            Result = PortHandler(PortHandler),
+            receive
+                {'EXIT', Port, normal} -> %% flush port exit
+                    ok
+            after 0 ->
+                    ok
+            end,
             Result
     end.
 
@@ -523,7 +548,32 @@ build_command(#opts_rec{ spec = {spec, Spec}, directory = Directory, quiet = Qui
             end;
         Command ->
             set_install_prefix(Opts),
-			{Result, _} = agner_utils:exec(Command, [{cd, Directory}|{quiet, Quiet}]),
+            Port = open_port({spawn,"sh -c \"" ++ Command ++ "\""},[{cd, Directory},exit_status,stderr_to_stdout,use_stdio, stream]),
+            unlink(Port),
+            PortHandler = fun (F) ->
+                                  receive
+                                      {'EXIT', Port, normal} ->
+                                          ok;
+                                      {'EXIT', Port, _} ->
+                                          error;
+                                      {Port,{exit_status,0}} ->
+                                          ok;
+                                      {Port,{exit_status,_}} ->
+                                          error;
+                                      {Port, {data, D}} when not Quiet andalso is_list(D) ->
+                                          io:format("~s",[D]),
+                                          F(F);
+                                      _ ->
+                                          F(F)
+                                  end
+                          end,
+            Result = PortHandler(PortHandler),
+            receive
+                {'EXIT', Port, normal} -> %% flush port exit
+                    ok
+            after 0 ->
+                    ok
+            end,
             Result
     end.
 
@@ -572,8 +622,33 @@ install_command(#opts_rec{ spec = {spec, Spec}, directory = Directory, quiet = Q
         undefined ->
             ok;
         Command ->
-            case agner_utils:exec(Command, [{cd, Directory}|{quiet, Quiet}]) of
-                {ok, __Lines} ->
+            Port = open_port({spawn,"sh -c \"" ++ Command ++ "\""},[{cd, Directory},exit_status,stderr_to_stdout,use_stdio, stream]),
+            PortHandler = fun (F) ->
+                                  receive
+                                      {'EXIT', Port, normal} ->
+                                          ok;
+                                      {'EXIT', Port, _} ->
+                                          error;
+                                      {Port,{exit_status,0}} ->
+                                          ok;
+                                      {Port,{exit_status,_}} ->
+                                          error;
+                                      {Port, {data, D}} when not Quiet andalso is_list(D) ->
+                                          io:format("~s",[D]),
+                                          F(F);
+                                      _ ->
+                                          F(F)
+                                  end
+                          end,
+            Result = PortHandler(PortHandler),
+            receive
+                {'EXIT', Port, normal} -> %% flush port exit
+                    ok
+            after 0 ->
+                    ok
+            end,
+            case Result of
+                ok ->
                     case proplists:get_value(bin_files, Spec) of
                         undefined ->
                             ignore;
@@ -594,8 +669,8 @@ install_command(#opts_rec{ spec = {spec, Spec}, directory = Directory, quiet = Q
                                           end, Files)
                     end,
                     ok;
-                {error, Reason} ->
-                    Reason
+                _ ->
+                    Result
             end
     end.
 
