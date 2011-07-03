@@ -1,5 +1,8 @@
 %% -*- Mode: Erlang; tab-width: 4 -*-
 -module(agner_server).
+-ifdef(TEST).
+-compile(export_all).
+-endif. 
 -include_lib("agner.hrl").
 -include_lib("typespecs/include/typespecs.hrl").
 -behaviour(gen_server).
@@ -34,6 +37,14 @@
 %%--------------------------------------------------------------------
 start_link() ->
 	gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+%% @doc
+%%     Stops server.
+%% @end
+-spec(stop/1 :: (Pid :: pid()) -> ok).
+stop(Pid) ->
+    (catch gen_server:call(Pid, stop)),
+    ok.
 
 %% @doc Ask the server for a spec on Name and Version
 %% @end
@@ -117,6 +128,9 @@ init([]) ->
                  (agner_call_index(), gen_server_from(), gen_server_state()) -> gen_server_async_reply(list(agner_package_name())) ;
                  (agner_call_fetch(), gen_server_from(), gen_server_state()) -> gen_server_async_reply(ok | {error, any()}) ;
                  (agner_call_versions(), gen_server_from(), gen_server_state()) -> gen_server_async_reply(list(agner_package_version()) | not_found_error()).
+
+handle_call(stop, _From, State)->
+    {stop, normal, State};
 
 handle_call({spec, Name, Version}, From, #state{}=State) ->
 	spawn_link(fun () ->
