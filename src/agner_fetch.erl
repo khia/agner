@@ -25,7 +25,8 @@
           spec,
           package_path,
           quiet,
-          nofetch
+          nofetch,
+          deps_dir
          }).
 
 -record(state, {
@@ -154,11 +155,20 @@ handle_state(fetchable, #state{ opts = #opts_rec{version = Version, directory = 
     gen_fsm2:send_event(self(), next),
     {ok, State};
 
-handle_state(fetchable, #state{ opts = #opts_rec{spec = {spec, Spec}, version = Version, directory = Directory }
+handle_state(fetchable, #state{ opts = #opts_rec{spec = {spec, Spec}, 
+												 deps_dir = Deps,
+												 version = Version, directory = Directory } = Opts
                               } = State) when is_list(Directory) andalso is_list(Version) ->
+	%% Set only for top package
+	DepsDir = case Deps of
+				  undefined ->
+					  deps_dir(Spec, Directory);
+				  Deps ->
+					  Deps
+			  end,
     agner:fetch(Spec, Version, Directory),
     gen_fsm2:send_event(self(), next),
-    {ok, State};
+    {ok, State#state{opts = Opts#opts_rec{deps_dir = DepsDir}}};
 
 %% Execute steps in `fetched` until there is nothing else to do
 handle_state(fetched, #state{ fetched_steps = []  } = State) ->
@@ -477,7 +487,8 @@ build_dep(ReqName, ReqVersion, #opts_rec{ spec = {spec, Spec}, directory = Direc
     agner_main:handle_command(fetch, [{package, ReqName},{version, ReqVersion},
                                       {directory, filename:join(deps_dir(Spec, Directory),ReqName)}|
                                       proplists:delete(spec,rec_to_opts(Opts))]).
-rebar(RebarCommands, #opts_rec{ spec = {spec, Spec} } = Opts) ->
+rebar(RebarCommands0, #opts_rec{ spec = {spec, Spec}, deps_dir = Deps } = Opts) ->
+	RebarCommands = [ Cmd ++ " deps_dir=" ++ Deps || Cmd <- RebarCommands0],
     case proplists:get_value(rebar_compatible, Spec) of
         true ->
             ScriptName = filename:absname(escript:script_name()),
