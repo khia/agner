@@ -505,32 +505,7 @@ fetch_deps_command(#opts_rec{ spec = {spec, Spec}, directory = Directory, quiet 
         Command ->
             set_install_prefix(Opts),
             io:format("[Fetching dependencies...]~n"),
-            Port = open_port({spawn,"sh -c \"" ++ Command ++ "\""},[{cd, Directory},exit_status,stderr_to_stdout,use_stdio, stream]),
-            unlink(Port),
-            PortHandler = fun (F) ->
-                                  receive
-                                      {'EXIT', Port, normal} ->
-                                          ok;
-                                      {'EXIT', Port, _} ->
-                                          error;
-                                      {Port,{exit_status,0}} ->
-                                          ok;
-                                      {Port,{exit_status,_}} ->
-                                          error;
-                                      {Port, {data, D}} when not Quiet andalso is_list(D) ->
-                                          io:format("~s",[D]),
-                                          F(F);
-                                      _ ->
-                                          F(F)
-                                  end
-                          end,
-            Result = PortHandler(PortHandler),
-            receive
-                {'EXIT', Port, normal} -> %% flush port exit
-                    ok
-            after 0 ->
-                    ok
-            end,
+			{Result, _} = agner_utils:exec(Command, [{cd, Directory}|{quiet, Quiet}]),
             Result
     end.
 
@@ -548,32 +523,7 @@ build_command(#opts_rec{ spec = {spec, Spec}, directory = Directory, quiet = Qui
             end;
         Command ->
             set_install_prefix(Opts),
-            Port = open_port({spawn,"sh -c \"" ++ Command ++ "\""},[{cd, Directory},exit_status,stderr_to_stdout,use_stdio, stream]),
-            unlink(Port),
-            PortHandler = fun (F) ->
-                                  receive
-                                      {'EXIT', Port, normal} ->
-                                          ok;
-                                      {'EXIT', Port, _} ->
-                                          error;
-                                      {Port,{exit_status,0}} ->
-                                          ok;
-                                      {Port,{exit_status,_}} ->
-                                          error;
-                                      {Port, {data, D}} when not Quiet andalso is_list(D) ->
-                                          io:format("~s",[D]),
-                                          F(F);
-                                      _ ->
-                                          F(F)
-                                  end
-                          end,
-            Result = PortHandler(PortHandler),
-            receive
-                {'EXIT', Port, normal} -> %% flush port exit
-                    ok
-            after 0 ->
-                    ok
-            end,
+			{Result, _} = agner_utils:exec(Command, [{cd, Directory}|{quiet, Quiet}]),
             Result
     end.
 
@@ -622,33 +572,8 @@ install_command(#opts_rec{ spec = {spec, Spec}, directory = Directory, quiet = Q
         undefined ->
             ok;
         Command ->
-            Port = open_port({spawn,"sh -c \"" ++ Command ++ "\""},[{cd, Directory},exit_status,stderr_to_stdout,use_stdio, stream]),
-            PortHandler = fun (F) ->
-                                  receive
-                                      {'EXIT', Port, normal} ->
-                                          ok;
-                                      {'EXIT', Port, _} ->
-                                          error;
-                                      {Port,{exit_status,0}} ->
-                                          ok;
-                                      {Port,{exit_status,_}} ->
-                                          error;
-                                      {Port, {data, D}} when not Quiet andalso is_list(D) ->
-                                          io:format("~s",[D]),
-                                          F(F);
-                                      _ ->
-                                          F(F)
-                                  end
-                          end,
-            Result = PortHandler(PortHandler),
-            receive
-                {'EXIT', Port, normal} -> %% flush port exit
-                    ok
-            after 0 ->
-                    ok
-            end,
-            case Result of
-                ok ->
+            case agner_utils:exec(Command, [{cd, Directory}|{quiet, Quiet}]) of
+                {ok, __Lines} ->
                     case proplists:get_value(bin_files, Spec) of
                         undefined ->
                             ignore;
@@ -669,8 +594,8 @@ install_command(#opts_rec{ spec = {spec, Spec}, directory = Directory, quiet = Q
                                           end, Files)
                     end,
                     ok;
-                _ ->
-                    Result
+                {error, Reason} ->
+                    Reason
             end
     end.
 
