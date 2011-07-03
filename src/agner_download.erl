@@ -1,11 +1,59 @@
 %% -*- Mode: Erlang; tab-width: 4 -*-
 -module(agner_download).
--export([fetch/2]).
+-export([fetch/2, revision/2]).
 %% internal exports
 -export([git/1, git/2, process_port/2]).
 
-fetch(Spec, Directory) ->
-    Fetch = fetch_1(proplists:get_value(url, Spec), Directory),
+revision(Spec, Directory) ->
+	URL = proplists:get_value(url, Spec),
+	Lines = revision_1(URL, Directory),
+	case Lines of
+		[] ->     {ok, ''};
+		[Revision] -> {ok, string:strip(Revision, right, $\n)};
+		Else -> {error, {unexpected, Else}}
+	end.
+			
+revision_1(undefined, _) -> %% if no url is defined, don't do anything
+    [];
+
+revision_1({all, []}, _) ->
+    [];
+
+revision_1({all, [{Name, URL}|Rest]}, Directory) ->
+    revision_1(URL, filename:join(Directory, Name)),
+    revision_1({all, Rest}, Directory);
+
+revision_1({git, __URL, __Ref}, Directory) ->
+    case filelib:is_dir(Directory) of
+        false -> {error, {enotdir, Directory}};
+        true -> %% existing repo (or something else)
+            %% Port = git(["rev-parse","--verify", "HEAD"], [{cd, Directory}, out, eof]),
+			Port = git(["rev-parse","--verify", "HEAD"], [{cd, Directory}]),
+            process_port(Port, fun(Revision) -> Revision end)
+	end;
+revision_1({hg, __URL, __Ref}, Directory) ->
+    case filelib:is_dir(Directory) of
+        false -> {error, {enotdir, Directory}};
+        true -> %% existing repo (or something else)
+            Port = hg(["identify","-i"], [{cd, Directory}, out, exit_status]),
+            process_port(Port, fun(Revision) -> Revision end)
+	end;
+revision_1({svn, __URL, __Ref}, Directory) ->
+    case filelib:is_dir(Directory) of
+        false -> {error, {enotdir, Directory}};
+        true -> %% existing repo (or something else)
+            Port = svn(["svnversion","."], [{cd, Directory}, use_stdio, out, exit_status]),
+            process_port(Port, fun(Revision) -> Revision end)
+	end.
+
+fetch(Spec0, Directory) ->
+    Fetch = fetch_1(proplists:get_value(url, Spec0), Directory),
+	Spec = case revision(Spec0, Directory) of
+			   {ok, CurrentRevision} -> 
+				   [{revision, CurrentRevision}|Spec0];
+			   {error, __Reason} -> 
+				   Spec0
+		   end,
     case file:open(filename:join(Directory,".agner.config"),[write]) of
         {ok, F} ->
             lists:foreach(fun (Term) ->
