@@ -21,5 +21,9 @@ compile: deps
 	@./rebar escriptize
 	@./scripts/add_rebar_templates
 
+ .PHONY : test
+test: compile
+	@./rebar eunit
+
 install:
 	@install ./agner /usr/local/bin
