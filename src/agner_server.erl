@@ -332,6 +332,11 @@ sha1(Mod, Params, Name, Version) ->
             no_such_version
     end.
 
+rm_dir([$/|_] = Directory) ->
+	%% Can be dangerous
+	agner_utils:exec("rm -rf " ++ Directory, [{quiet,true}]);
+rm_dir(Directory) ->	
+	{error, {not_absolute_path, Directory}}.
 
 index_module(T) ->
     case application:get_env(index_modules) of
