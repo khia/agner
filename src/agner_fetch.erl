@@ -516,7 +516,7 @@ fetch_deps_command(#opts_rec{ spec = {spec, Spec}, directory = Directory, quiet 
         Command ->
             set_install_prefix(Opts),
             io:format("[Fetching dependencies...]~n"),
-			{Result, _} = agner_utils:exec(Command, [{cd, Directory}|{quiet, Quiet}]),
+			{Result, _} = agner_utils:exec(Command, [{cd, Directory},{quiet, Quiet}]),
             Result
     end.
 
@@ -534,7 +534,7 @@ build_command(#opts_rec{ spec = {spec, Spec}, directory = Directory, quiet = Qui
             end;
         Command ->
             set_install_prefix(Opts),
-			{Result, _} = agner_utils:exec(Command, [{cd, Directory}|{quiet, Quiet}]),
+			{Result, _} = agner_utils:exec(Command, [{cd, Directory},{quiet, Quiet}]),
             Result
     end.
 
@@ -583,7 +583,7 @@ install_command(#opts_rec{ spec = {spec, Spec}, directory = Directory, quiet = Q
         undefined ->
             ok;
         Command ->
-            case agner_utils:exec(Command, [{cd, Directory}|{quiet, Quiet}]) of
+            case agner_utils:exec(Command, [{cd, Directory},{quiet, Quiet}]) of
                 {ok, __Lines} ->
                     case proplists:get_value(bin_files, Spec) of
                         undefined ->
