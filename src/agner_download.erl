@@ -44,7 +44,14 @@ revision_1({svn, __URL, __Ref}, Directory) ->
         true -> %% existing repo (or something else)
             Port = svn(["svnversion","."], [{cd, Directory}, use_stdio, out, exit_status]),
             process_port(Port, fun(Revision) -> Revision end)
-	end.
+	end;
+revision_1({bzr, __URL, __Ref}, Directory) ->
+    case filelib:is_dir(Directory) of
+        false -> {error, {enotdir, Directory}};
+        true -> %% existing repo (or something else)
+            Port = bzr(["revno"], [{cd, Directory}, use_stdio, out, exit_status]),
+            process_port(Port, fun(Revision) -> Revision end)
+        end.
 
 fetch(Spec0, Directory) ->
     Fetch = fetch_1(proplists:get_value(url, Spec0), Directory),
@@ -141,6 +148,14 @@ hg(Args, Opts) ->
 svn(Args, Opts) ->
     Svn = os:find_executable("svn"),
     open_port({spawn_executable, Svn},[{args, Args},
+                                       exit_status|Opts]).
+
+bzr(Args) ->
+    bzr(Args,[]).
+
+bzr(Args, Opts) ->
+    Bzr = os:find_executable("bzr"),
+    open_port({spawn_executable, Bzr},[{args, Args},
                                        exit_status|Opts]).
 
 process_port(Port, Fun) ->

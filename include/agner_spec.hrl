@@ -6,6 +6,8 @@
 
 -type svn_rev() :: string().
 
+-type bzr_rev() :: string().
+
 -type agner_named_download_url() :: 
         {string(), agner_download_url()}.
 
@@ -13,7 +15,8 @@
         {all, list(agner_named_download_url())} |
         {git, url(), git_ref()} |
         {hg, url(), hg_rev()} |
-        {svn, url(), svn_rev()}.
+        {svn, url(), svn_rev()} |
+	{bzr, url(), bzr_rev()}.
 
 -type agner_install_dir() :: otp | directory().
 
