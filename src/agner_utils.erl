@@ -1,6 +1,6 @@
 %% -*- Mode: Erlang; tab-width: 4 -*-
 -module(agner_utils).
--export([launch_browser/1, exec/1, exec/2]).
+-export([launch_browser/1, exec/1, exec/2, search_keys/3]).
 
 launch_browser(URL) ->
     case os:type() of
@@ -43,4 +43,14 @@ exec(Command, Opts0) ->
 	after 0 ->
 			ok
 	end,
-	Result.	
+	Result.
+	
+search_keys(Key, Idx, List) ->
+    search_keys(Key, Idx, List, []).
+search_keys(__Key, __Idx, [], Res) -> Res;
+search_keys(Key, Idx, [Element | Rest], Res0) ->
+    Res1 = case (element(Idx, Element) =:= Key) of
+	    true -> [Element] ++ Res0;
+	    false -> Res0
+	end,    
+    search_keys(Key, Idx, Rest, Res1).	

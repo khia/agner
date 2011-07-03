@@ -19,7 +19,10 @@
 
 -define(TIMEOUT, 60000).
 
+-type dep_revision() :: {Version :: term(), Directory :: string(), Revision :: string()}.
+
 -record(state, {
+		  deps = [] :: [{Name :: string(), dep_revision()}],
 		  requests = [] :: [
 							{NameOrSpec :: term(), 
 							 Version :: term(), 
@@ -169,19 +172,23 @@ handle_call(index, From, #state{}=State) ->
 
 handle_call({fetch, Name, NameOrSpec, Version, Directory}, From, 
 			#state{
+					deps = Dependencies, 
 					requests = Queue, active_requests = Locks} = State0) ->
 	case lists:member(Name, Locks) of
 		true ->
 			State = State0#state{requests = [{NameOrSpec, Version, Directory}|Queue]};
 		false ->
 			State = State0#state{active_requests = [Name|Locks]},
+			Revisions = proplists:append_values(Name, Dependencies),
 			spawn_link(fun () ->
-							   handle_fetch(NameOrSpec, Version, Directory, From)
+							   handle_fetch(NameOrSpec, Version, Directory, Revisions, From)
 					   end)
 	end,
 	{noreply, State};
 
-handle_call({fetched, Name, {Version, Directory, Revision}}, From, State) ->
+handle_call({fetched, Name, {Version, Directory, Revision}}, From, 
+			#state{deps = Dependencies} = State0) ->
+	State = State0#state{deps = [{Name, {Version, Directory, Revision}}|Dependencies]},
 	handle_call({unlock, Name}, From, State);
 
 handle_call({unlock, Name}, __From, 
@@ -318,20 +325,21 @@ handle_index(From, Acc, [{Mod0, Params}|Rest]) ->
             handle_index(From, lists:map(fun (Repo) -> indexize(Mod0, Params, Repo) end, Repos) ++ Acc, Rest)
 	end.
 
--spec handle_fetch(agner_package_name() | agner_spec(), agner_package_version(), directory(), gen_server_from()) -> any().
-handle_fetch(NameOrSpec, Version, Directory, From) ->
+-spec handle_fetch(agner_package_name() | agner_spec(), agner_package_version(), directory(), [dep_revision()], gen_server_from()) -> any().
+handle_fetch(NameOrSpec, Version, Directory, Revisions, From) ->
+	io:format("Version: ~p~n", [Version]),
     case io_lib:printable_list(NameOrSpec) of
         true ->
             case agner:spec(NameOrSpec, Version) of
                 {error, _} = Error ->
                     gen_server:reply(From, Error);
                 Spec ->
-                    agner_download:fetch(Spec, Directory),
-                    gen_server:reply(From, ok)
+					Reply = do_fetch(Spec, Directory, Revisions),
+                    gen_server:reply(From, Reply)
             end;
         false -> %% it is a spec
-            agner_download:fetch(NameOrSpec, Directory),
-            gen_server:reply(From, ok)
+			Reply = do_fetch(NameOrSpec, Directory, Revisions),
+			gen_server:reply(From, Reply)
     end.
 
 -spec handle_versions(agner_package_name(), gen_server_from(), agner_indices()) -> any().
@@ -371,6 +379,48 @@ sha1(Mod, Params, Name, Version) ->
         no_such_version ->
             no_such_version
     end.
+
+-spec(do_fetch/3 :: (agner_spec(), directory(), [dep_revision()]) -> {ok, string()} | {error, term()}). 
+do_fetch(Spec, Directory, []) ->
+	agner_download:fetch(Spec, Directory),
+	case agner_download:revision(Spec, Directory) of
+		{ok, Revision} ->		
+			{ok, {Directory, Revision}};
+		Else -> Else
+	end;
+
+do_fetch(Spec, Directory, Revisions) ->	
+	TempDirectory = test_server:temp_name(Directory),	
+	agner_download:fetch(Spec, TempDirectory),	
+	case agner_download:revision(Spec, TempDirectory) of
+		{ok, Revision} ->
+			case choose_directory(Revision, Revisions, Directory, Spec) of
+				{new, NewDirectory} -> % already fetched but different version
+					file:rename(TempDirectory, NewDirectory),
+					{ok, NewDirectory};
+				{old, Directory} ->        % fetched for first time
+					file:rename(TempDirectory, Directory),
+					{ok, Directory};
+				{old, NewDirectory} -> % already fetched 
+					rm_dir(Directory),
+					{ok, NewDirectory}
+			end;
+		Else -> Else
+	end.
+
+choose_directory(Revision, Revisions, Directory, Spec) ->
+	case agner_utils:search_keys(Revision, 3, Revisions) of
+		[] -> 
+			case filelib:is_dir(Directory) of
+				true -> 
+					Version = proplists:get_value(version, Spec),
+					{new, Directory ++ "-" ++ agner_spec:version_to_list(Version)};
+				false ->								
+					{old, Directory}
+			end;
+		[{__Version, NewDirectory, Revision}] -> 
+			{old, NewDirectory}
+	end.
 
 rm_dir([$/|_] = Directory) ->
 	%% Can be dangerous
