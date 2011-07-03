@@ -327,7 +327,6 @@ handle_index(From, Acc, [{Mod0, Params}|Rest]) ->
 
 -spec handle_fetch(agner_package_name() | agner_spec(), agner_package_version(), directory(), [dep_revision()], gen_server_from()) -> any().
 handle_fetch(NameOrSpec, Version, Directory, Revisions, From) ->
-	io:format("Version: ~p~n", [Version]),
     case io_lib:printable_list(NameOrSpec) of
         true ->
             case agner:spec(NameOrSpec, Version) of
