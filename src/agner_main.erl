@@ -413,7 +413,7 @@ handle_command(create, Opts) ->
         Package ->
             Dir = filename:absname(Package ++ ".agner"),
             ClonePort = agner_download:git(["clone","-q","https://github.com/agner/agner.template.git",Dir]),
-            agner_download:process_port(ClonePort, fun() ->
+            agner_download:process_port(ClonePort, fun(_) ->
                                                            agner_download:git(["config","remote.origin.url","git@github.com:" ++ proplists:get_value(github_account, Opts) ++ "/" ++ Package ++ ".agner.git"],[{cd, Dir}])
                                                    end)
     end;

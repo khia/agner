@@ -31,23 +31,23 @@ fetch_1({git, URL, Ref}, Directory) ->
     case filelib:is_dir(Directory) of
         false -> %% clone
             PortClone = git(["clone", URL, Directory]),
-            process_port(PortClone, fun () -> git_checkout(Ref, Directory) end);
+            process_port(PortClone, fun (_) -> git_checkout(Ref, Directory) end);
         true -> %% existing repo (or something else)
             PortFetch = git(["fetch","origin"], [{cd, Directory}]),
-            process_port(PortFetch, fun() -> git_checkout(Ref, Directory) end)
+            process_port(PortFetch, fun(_) -> git_checkout(Ref, Directory) end)
     end;
 
 fetch_1({hg, URL, Rev}, Directory) ->
     case filelib:is_dir(Directory) of
         false -> %% new
             PortClone = hg(["clone", "-U", URL, Directory]),
-            process_port(PortClone, fun () -> 
+            process_port(PortClone, fun (_) -> 
                                             PortUpdate = hg(["update", Rev], [{cd, Directory}]),
-                                            process_port(PortUpdate, fun () -> ok end)
+                                            process_port(PortUpdate, fun (_) -> ok end)
                                     end);
         true -> %% existing
             PortClone = hg(["pull", "-u", "-r", Rev],[{cd, Directory}]),
-            process_port(PortClone, fun () -> ok end)
+            process_port(PortClone, fun (_) -> ok end)
     end;
 
 fetch_1({svn, Url, Rev}, Directory) ->
@@ -56,23 +56,23 @@ fetch_1({svn, Url, Rev}, Directory) ->
         false -> %% new
             PortCheckout = svn(["checkout", "-r", Rev, Url, filename:basename(Directory)],
                                [{cd, filename:dirname(Directory)}]),
-            process_port(PortCheckout, fun () -> ok  end);
+            process_port(PortCheckout, fun (_) -> ok  end);
         true -> %% existing
             PortUp = svn(["up", "-r", Rev],[{cd, Directory}]),
-            process_port(PortUp, fun () -> ok end)
+            process_port(PortUp, fun (_) -> ok end)
     end.
 
 %%
 
 git_checkout({branch, Ref}, Directory) when is_list(Ref)->
     PortCheckout = git(["checkout","-q","origin/" ++ Ref],[{cd, Directory}]),
-    process_port(PortCheckout, fun () -> ok end);
+    process_port(PortCheckout, fun (_) -> ok end);
 git_checkout({tag, Ref}, Directory) when is_list(Ref) ->
     PortCheckout = git(["checkout","-q",Ref],[{cd, Directory}]),
-    process_port(PortCheckout, fun () -> ok end);
+    process_port(PortCheckout, fun (_) -> ok end);
 git_checkout(Ref, Directory) when is_list(Ref) ->
     PortCheckout = git(["checkout","-q",Ref],[{cd, Directory}]),
-    process_port(PortCheckout, fun () -> ok end).
+    process_port(PortCheckout, fun (_) -> ok end).
     
 git(Args) ->
     git(Args,[]).
@@ -96,9 +96,17 @@ svn(Args, Opts) ->
                                        exit_status|Opts]).
 
 process_port(Port, Fun) ->
+	process_port(Port, Fun, []).
+
+process_port(Port, Fun, Acc) ->
     receive 
         {Port, {exit_status, 0}} ->
-            apply(Fun, []);
+            apply(Fun, [lists:reverse(Acc)]);
+		{Port, {data, D}} ->
+			process_port(Port, Fun, [D|Acc]);
+		{Port, eof} ->
+			erlang:port_close(Port),
+            apply(Fun, [lists:reverse(Acc)]);			
         {Port, {exit_status, Status}} ->
             {error, Status};
         {'EXIT', Port, PosixCode} ->

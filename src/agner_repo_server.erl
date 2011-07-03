@@ -131,10 +131,10 @@ handle_call({clone, Fun}, _From, #state{ directory = undefined, name = Name, ver
     RepoName = apply(Fun,[Name]),
     ClonePort = agner_download:git(["clone", "-q", RepoName, Directory]),
     Result = agner_download:process_port(ClonePort, 
-                                         fun () ->
+                                         fun (_) ->
                                                  PortCheckout = agner_download:git(["checkout","-q",version_to_ref(Version)],
                                                                                    [{cd, Directory}]),
-                                                 agner_download:process_port(PortCheckout, fun () ->
+                                                 agner_download:process_port(PortCheckout, fun (_) ->
                                                                                                    ok
                                                                                            end)
                                          end),
