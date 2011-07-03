@@ -20,6 +20,11 @@
 -define(TIMEOUT, 60000).
 
 -record(state, {
+		  requests = [] :: [
+							{NameOrSpec :: term(), 
+							 Version :: term(), 
+							 Directory :: string()}],
+		  active_requests = [] :: [{Name :: string()}]
          }).
 
 -type gen_server_state() :: #state{}.
@@ -73,7 +78,20 @@ index() ->
            (agner_spec(), any(), directory()) -> ok | not_found_error().
                    
 fetch(NameOrSpec, Version, Directory) ->
-        gen_server:call(?SERVER, {fetch, NameOrSpec, Version, Directory}, infinity).
+    Name = case io_lib:printable_list(NameOrSpec) of
+			   true -> %% name
+				   NameOrSpec;
+			   false -> %% spec
+				   proplists:get_value(name, NameOrSpec)
+		   end,
+	case gen_server:call(?SERVER, {fetch, Name, NameOrSpec, Version, Directory}, infinity) of
+		{ok, {Directory, Revision}} -> 
+			gen_server:call(?SERVER, {fetched, Name, {Version, Directory, Revision}}),
+			{ok, Directory};
+		Else ->
+			gen_server:call(?SERVER, {unlock, Name}),
+			Else
+	end.
 
 %% @doc Ask for the versions of a given package, Name
 %% @end
@@ -100,8 +118,7 @@ versions(Name) ->
 -spec init([]) -> gen_server_init_result().
 
 init([]) ->
-	{ok, #state{
-      }}.
+	{ok, #state{}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -150,11 +167,34 @@ handle_call(index, From, #state{}=State) ->
 			   end),
 	{noreply, State};
 
-handle_call({fetch, NameOrSpec, Version, Directory}, From, #state{}=State) ->
-	spawn_link(fun () ->
-					   handle_fetch(NameOrSpec, Version, Directory, From)
-			   end),
+handle_call({fetch, Name, NameOrSpec, Version, Directory}, From, 
+			#state{
+					requests = Queue, active_requests = Locks} = State0) ->
+	case lists:member(Name, Locks) of
+		true ->
+			State = State0#state{requests = [{NameOrSpec, Version, Directory}|Queue]};
+		false ->
+			State = State0#state{active_requests = [Name|Locks]},
+			spawn_link(fun () ->
+							   handle_fetch(NameOrSpec, Version, Directory, From)
+					   end)
+	end,
 	{noreply, State};
+
+handle_call({fetched, Name, {Version, Directory, Revision}}, From, State) ->
+	handle_call({unlock, Name}, From, State);
+
+handle_call({unlock, Name}, __From, 
+			#state{requests = [], active_requests = Locks} = State0) ->
+	State = State0#state{active_requests = lists:delete(Name, Locks)},
+	{reply, ok, State};
+
+handle_call({unlock, Name}, From, 
+			#state{requests = [Query|Rest], active_requests = Locks} = State0) ->
+	{NameOrSpec, Version, Directory} = Query,
+	State = State0#state{requests = Rest, active_requests = lists:delete(Name, Locks)},
+	handle_call({fetch, Name, NameOrSpec, Version, Directory}, From, State),
+	{reply, ok, State};
 
 handle_call({versions, Name}, From, #state{}=State) ->
 	spawn_link(fun () ->

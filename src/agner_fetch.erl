@@ -157,18 +157,18 @@ handle_state(fetchable, #state{ opts = #opts_rec{version = Version, directory = 
 
 handle_state(fetchable, #state{ opts = #opts_rec{spec = {spec, Spec}, 
 												 deps_dir = Deps,
-												 version = Version, directory = Directory } = Opts
-                              } = State) when is_list(Directory) andalso is_list(Version) ->
+												 version = Version, directory = Directory0 } = Opts
+                              } = State) when is_list(Directory0) andalso is_list(Version) ->
 	%% Set only for top package
 	DepsDir = case Deps of
 				  undefined ->
-					  deps_dir(Spec, Directory);
+					  deps_dir(Spec, Directory0);
 				  Deps ->
 					  Deps
 			  end,
-    agner:fetch(Spec, Version, Directory),
+    {ok, Directory} = agner:fetch(Spec, Version, Directory0),
     gen_fsm2:send_event(self(), next),
-    {ok, State#state{opts = Opts#opts_rec{deps_dir = DepsDir}}};
+    {ok, State#state{opts = Opts#opts_rec{deps_dir = DepsDir, directory = Directory}}};
 
 %% Execute steps in `fetched` until there is nothing else to do
 handle_state(fetched, #state{ fetched_steps = []  } = State) ->
