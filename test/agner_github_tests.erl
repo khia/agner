@@ -16,11 +16,13 @@ get_git_token_test() ->
     ?assertCmdOutput(Token, "git config --global --get github.token").
 
 new_repository_test() ->
+    %% This test works only once
     inets:start(),
     ssl:start(),
     Name = "test.agner",
     User = os:getenv("USERNAME"),
-    Res = ?TARGET:new_repo(Name, User),
+    Res = ?TARGET:new_repository(Name, User),
+    io:format("Res:~p~n", [Res]),
     ssl:stop(),
-    inets:start(),
+    inets:stop(),
     ?assert(Res =:= ok).
