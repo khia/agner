@@ -11,7 +11,11 @@
 		 branches/2,
 		 spec/3,
          spec_url/3,
-         exists/2
+         exists/2,
+		 get_git_account/1,
+		 get_git_token/1, 
+		 new_repository/1,
+		 new_repository/2
 		]).
 
 repositories(Account) ->
@@ -49,7 +53,46 @@ repository(Account, Name) ->
 		Object ->
 			proplists:get_value(<<"repository">>, Object)
 	end.
+
+new_repository(Name) ->
+	UserName = os:getenv("USERNAME"),
+	new_repository(Name, UserName).
 	
+new_repository(Name, UserName) -> 
+	CreateURL = "https://github.com/api/v2/json/repos/create", 
+	case get_git_account(UserName) of
+		{ok, Account} ->
+			case get_git_token(UserName) of
+				{ok, Token} ->
+					case httpc:request(
+						  post, {CreateURL, [], "application/x-www-form-urlencoded", 
+								 "login=" ++ Account 
+								 ++ "&" ++ "token=" ++ Token
+								 ++ "&" ++ "name=" ++ Name}, [], []) of
+						{ok, {{"HTTP/1.1",200,_},_Headers,_Body}} ->
+							ok;
+						Else -> {error, {unexpected, Else}}
+					end;
+				Any -> Any
+			end;
+		Any -> Any
+	end.
+
+get_git_account(UserName) ->
+	Port = agner_download:git(["config", "--global", "--get", "github.user"]),
+	case agner_download:process_port(Port, fun(Account) -> Account end) of
+		[] -> {error, {github_user_not_configured, UserName}};
+		[Account] -> {ok, string:strip(Account, right, $\n)};
+		Else -> {error, {unexpected, Else}}
+	end. 
+
+get_git_token(UserName) ->
+	Port = agner_download:git(["config", "--global", "--get", "github.token"]),
+	case agner_download:process_port(Port, fun(Token) -> Token end) of
+		[] -> {error, {github_user_not_configured, UserName}};
+		[Token] -> {ok, string:strip(Token, right, $\n)};
+		Else -> {error, {unexpected, Else}}
+	end. 
 	
 tags(Account, Name) ->
     Port = agner_download:git(["ls-remote", "-t",  "git://github.com/" ++ proper_repo_name(Account, Name) ++ ".git"],
