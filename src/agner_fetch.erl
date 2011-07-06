@@ -156,9 +156,22 @@ handle_state(fetchable, #state{ opts = #opts_rec{version = Version, directory = 
     {ok, State};
 
 handle_state(fetchable, #state{ opts = #opts_rec{spec = {spec, Spec}, 
-												 deps_dir = Deps,
 												 version = Version, directory = Directory0 } = Opts
                               } = State) when is_list(Directory0) andalso is_list(Version) ->
+    {ok, Directory} = agner:fetch(Spec, Version, Directory0),
+    gen_fsm2:send_event(self(), next),
+    {ok, State#state{opts = Opts#opts_rec{directory = Directory}}};
+
+%% Execute steps in `fetched` until there is nothing else to do
+handle_state(fetched, #state{ fetched_steps = []  } = State) ->
+    gen_fsm2:send_event(self(), next),
+    {ok, State};
+
+handle_state(fetched, #state{ 
+			   opts = #opts_rec{spec = {spec, Spec}, 
+								deps_dir = Deps,
+								directory = Directory0} = Opts,
+			   fetched_steps = [Step|Rest]  } = State) ->
 	%% Set only for top package
 	DepsDir = case Deps of
 				  undefined ->
@@ -166,18 +179,8 @@ handle_state(fetchable, #state{ opts = #opts_rec{spec = {spec, Spec},
 				  Deps ->
 					  Deps
 			  end,
-    {ok, Directory} = agner:fetch(Spec, Version, Directory0),
-    gen_fsm2:send_event(self(), next),
-    {ok, State#state{opts = Opts#opts_rec{deps_dir = DepsDir, directory = Directory}}};
-
-%% Execute steps in `fetched` until there is nothing else to do
-handle_state(fetched, #state{ fetched_steps = []  } = State) ->
-    gen_fsm2:send_event(self(), next),
-    {ok, State};
-
-handle_state(fetched, #state{ fetched_steps = [Step|Rest]  } = State) ->
     gen_fsm2:send_event(self(), Step),
-    {ok, State#state{ fetched_steps = Rest } };
+    {ok, State#state{ opts = Opts#opts_rec{deps_dir = DepsDir}, fetched_steps = Rest } };
 
 %% Execute steps in `buildable` until there is nothing else to do
 handle_state(buildable, #state{ build_steps = []  } = State) ->
