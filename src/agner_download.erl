@@ -8,7 +8,7 @@ revision(Spec, Directory) ->
 	URL = proplists:get_value(url, Spec),
 	Lines = revision_1(URL, Directory),
 	case Lines of
-		[] ->     {ok, ''};
+		[] ->     {ok, ""};
 		[Revision] -> {ok, string:strip(Revision, right, $\n)};
 		Else -> {error, {unexpected, Else}}
 	end.
@@ -35,21 +35,21 @@ revision_1({hg, __URL, __Ref}, Directory) ->
     case filelib:is_dir(Directory) of
         false -> {error, {enotdir, Directory}};
         true -> %% existing repo (or something else)
-            Port = hg(["identify","-i"], [{cd, Directory}, out, exit_status]),
+            Port = hg(["identify","-i"], [{cd, Directory}]),
             process_port(Port, fun(Revision) -> Revision end)
 	end;
 revision_1({svn, __URL, __Ref}, Directory) ->
     case filelib:is_dir(Directory) of
         false -> {error, {enotdir, Directory}};
         true -> %% existing repo (or something else)
-            Port = svn(["svnversion","."], [{cd, Directory}, use_stdio, out, exit_status]),
+            Port = svn(["svnversion","."], [{cd, Directory}]),
             process_port(Port, fun(Revision) -> Revision end)
 	end;
 revision_1({bzr, __URL, __Ref}, Directory) ->
     case filelib:is_dir(Directory) of
         false -> {error, {enotdir, Directory}};
         true -> %% existing repo (or something else)
-            Port = bzr(["revno"], [{cd, Directory}, use_stdio, out, exit_status]),
+            Port = bzr(["revno"], [{cd, Directory}]),
             process_port(Port, fun(Revision) -> Revision end)
         end.
 
@@ -166,10 +166,11 @@ process_port(Port, Fun, Acc) ->
         {Port, {exit_status, 0}} ->
             apply(Fun, [lists:reverse(Acc)]);
 		{Port, {data, D}} ->
+			io:format("~p~n", [D]),
 			process_port(Port, Fun, [D|Acc]);
 		{Port, eof} ->
 			erlang:port_close(Port),
-            apply(Fun, [lists:reverse(Acc)]);			
+            apply(Fun, [lists:reverse(Acc)]);
         {Port, {exit_status, Status}} ->
             {error, Status};
         {'EXIT', Port, PosixCode} ->
