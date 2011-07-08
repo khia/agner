@@ -115,6 +115,20 @@ fetch_1({svn, Url, Rev}, Directory) ->
         true -> %% existing
             PortUp = svn(["up", "-r", Rev],[{cd, Directory}]),
             process_port(PortUp, fun (_) -> ok end)
+    end;
+
+fetch_1({bzr, Url, Rev}, Directory) ->
+    io:format("[Fetching bzr repository...]~n"),
+	case filelib:is_dir(Directory) of
+        false -> %% new
+            PortCheckout = bzr(["checkout"] 
+							   ++ bzr_format_revision(Rev) 
+							   ++ [Url, filename:basename(Directory)],
+                               [{cd, filename:dirname(Directory)}]),
+            process_port(PortCheckout, fun (_) -> ok  end);
+        true -> %% existing
+            PortUp = bzr(["up"] ++ bzr_format_revision(Rev),[{cd, Directory}]),
+            process_port(PortUp, fun (_) -> ok end)
     end.
 
 %%
@@ -149,6 +163,13 @@ svn(Args, Opts) ->
     Svn = os:find_executable("svn"),
     open_port({spawn_executable, Svn},[{args, Args},
                                        exit_status|Opts]).
+
+bzr_format_revision({branch, Ref}) when is_list(Ref)->
+	["-r", "branch:" ++ Ref];
+bzr_format_revision({last, Ref}) when is_list(Ref)->
+	["-r", "last:" ++ Ref];
+bzr_format_revision({last, Ref}) when is_list(Ref)->
+	[].
 
 bzr(Args) ->
     bzr(Args,[]).
