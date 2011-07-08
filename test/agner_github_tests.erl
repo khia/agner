@@ -17,12 +17,22 @@ get_git_token_test() ->
 
 new_repository_test() ->
     %% This test works only once
+    application:start(inets),
     inets:start(),
     ssl:start(),
+    inets:start(httpc,[{profile, agner}]),
     Name = "test.agner",
+    [AgnerName|_] = string:tokens(Name, "."), %% "test.agner" -> "test"
     User = os:getenv("USERNAME"),
-    Res = ?TARGET:new_repository(Name, User),
-    io:format("Res:~p~n", [Res]),
-    ssl:stop(),
+    {__Result, Account} = ?TARGET:get_git_account(User),
+    Res = case ?TARGET:exists(Account, AgnerName) of
+	      true -> 
+		  Msg = io_lib:format("IGNORING: Repository ~p already exist on github~n", [Name]),
+		  ?debugMsg(Msg),
+		  ok;
+	      __Else ->
+		  ?TARGET:new_repository(Name, User)
+	  end,
     inets:stop(),
+    ssl:stop(),
     ?assert(Res =:= ok).
