@@ -85,6 +85,7 @@ fetch_1({all, [{Name, URL}|Rest]}, Directory) ->
 fetch_1({git, URL, Ref}, Directory) ->
     case filelib:is_dir(Directory) of
         false -> %% clone
+            filelib:ensure_dir(Directory),
             PortClone = git(["clone", URL, Directory]),
             process_port(PortClone, fun (_) -> git_checkout(Ref, Directory) end);
         true -> %% existing repo (or something else)
@@ -95,6 +96,7 @@ fetch_1({git, URL, Ref}, Directory) ->
 fetch_1({hg, URL, Rev}, Directory) ->
     case filelib:is_dir(Directory) of
         false -> %% new
+            filelib:ensure_dir(Directory),
             PortClone = hg(["clone", "-U", URL, Directory]),
             process_port(PortClone, fun (_) -> 
                                             PortUpdate = hg(["update", Rev], [{cd, Directory}]),
@@ -109,6 +111,7 @@ fetch_1({svn, Url, Rev}, Directory) ->
     io:format("[Fetching svn repository...]~n"),
     case filelib:is_dir(Directory) of
         false -> %% new
+            filelib:ensure_dir(Directory),
             PortCheckout = svn(["checkout", "-r", Rev, Url, filename:basename(Directory)],
                                [{cd, filename:dirname(Directory)}]),
             process_port(PortCheckout, fun (_) -> ok  end);
@@ -121,10 +124,12 @@ fetch_1({bzr, Url, Rev}, Directory) ->
     io:format("[Fetching bzr repository...]~n"),
 	case filelib:is_dir(Directory) of
         false -> %% new
+            ParentDirectory = filename:dirname(Directory),
+            filelib:ensure_dir(ParentDirectory),
             PortCheckout = bzr(["checkout"] 
 							   ++ bzr_format_revision(Rev) 
 							   ++ [Url, filename:basename(Directory)],
-                               [{cd, filename:dirname(Directory)}]),
+                               [{cd, ParentDirectory}]),
             process_port(PortCheckout, fun (_) -> ok  end);
         true -> %% existing
             PortUp = bzr(["up"] ++ bzr_format_revision(Rev),[{cd, Directory}]),
@@ -196,4 +201,4 @@ process_port(Port, Fun, Acc) ->
             {error, Status};
         {'EXIT', Port, PosixCode} ->
             {error, PosixCode}
-    end.
+    end. 
